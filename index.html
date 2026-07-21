@@ -1,0 +1,617 @@
+<!DOCTYPE html>
+<!--
+  ===================================================================
+  DadList  -  a dead-simple eBay listing tracker for two people.
+  ONE FILE. That is the whole app. You do not need anything else.
+
+  HOW THE TWO "VIEWS" WORK (important, read this):
+    - Your dad opens the PLAIN link  ->  he sees the big green button.
+    - You open the link + "#manage"   ->  you see the manager list.
+      Example:  https://yourname.github.io/dadlist/#manage
+    Because the manager view is hidden behind #manage, your dad can
+    NEVER accidentally tap into it. There is no menu for him to get lost in.
+
+  BEFORE THIS WORKS you must paste your Firebase settings in ONE spot
+  below. Look for the big red "STEP 4" banner. That is the only edit
+  you have to make.
+  ===================================================================
+-->
+<html lang="en">
+<head>
+  <meta charset="UTF-8" />
+  <!-- This meta tag makes the page size itself to the phone screen. Without it, everything looks tiny. -->
+  <meta name="viewport" content="width=device-width, initial-scale=1.0, viewport-fit=cover" />
+  <title>DadList</title>
+
+  <!-- Fonts. "Fraunces" is the warm display font for the big number/titles. "Figtree" is the clean body font. -->
+  <link rel="preconnect" href="https://fonts.googleapis.com">
+  <link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
+  <link href="https://fonts.googleapis.com/css2?family=Fraunces:opsz,wght@9..144,500;9..144,600;9..144,700&family=Figtree:wght@400;500;600;700&display=swap" rel="stylesheet">
+
+  <!-- The little celebration burst when Dad taps the button. If it ever fails to load, the app still works fine. -->
+  <script src="https://cdn.jsdelivr.net/npm/canvas-confetti@1.9.3/dist/confetti.browser.min.js"></script>
+
+  <style>
+    /* ---- Color + size settings kept in one place so they are easy to change ---- */
+    :root {
+      --bg:        #FAF6EF;   /* warm off-white background - softer than pure white, easy on older eyes */
+      --card:      #FFFFFF;   /* cards sit slightly brighter than the background */
+      --ink:       #241F19;   /* near-black text - very high contrast for readability */
+      --ink-soft:  #6B6255;   /* muted brown-grey for secondary text */
+      --green:     #1FA85A;   /* the "go / done" green for the button */
+      --green-dk:  #17864A;   /* darker green for the pressed/border state */
+      --amber:     #E38A00;   /* streak flame color */
+      --line:      #EBE3D6;   /* soft divider lines */
+      --shadow:    0 10px 30px rgba(60, 45, 20, 0.10);
+    }
+
+    * { box-sizing: border-box; -webkit-tap-highlight-color: transparent; }
+
+    body {
+      margin: 0;
+      background: var(--bg);
+      color: var(--ink);
+      font-family: 'Figtree', system-ui, -apple-system, sans-serif;
+      /* 18px minimum body text - large enough to read without glasses */
+      font-size: 18px;
+      line-height: 1.5;
+      /* keep content clear of phone notches / rounded corners */
+      padding: env(safe-area-inset-top) 16px env(safe-area-inset-bottom) 16px;
+    }
+
+    .wrap { max-width: 460px; margin: 0 auto; }
+
+    /* ============ SHARED BITS ============ */
+    .brand {
+      font-family: 'Fraunces', serif;
+      font-weight: 700;
+      font-size: 22px;
+      letter-spacing: 0.2px;
+      display: flex; align-items: center; gap: 8px;
+      padding: 18px 4px 6px;
+    }
+    .brand .dot { width: 12px; height: 12px; border-radius: 50%; background: var(--green); }
+
+    .hidden { display: none !important; }
+
+    /* A friendly red banner that only appears if something is set up wrong. */
+    #errorBar {
+      background: #FDECEC; color: #97231F; border: 1px solid #F3C6C4;
+      border-radius: 14px; padding: 14px 16px; margin: 10px 4px;
+      font-size: 15px; line-height: 1.45;
+    }
+
+    /* ============ DAD VIEW ============ */
+    #dadView { text-align: center; padding-top: 6px; }
+
+    .goal-label {
+      color: var(--ink-soft);
+      font-weight: 600;
+      font-size: 18px;
+      margin-top: 18px;
+    }
+
+    .count-card {
+      background: var(--card);
+      border: 1px solid var(--line);
+      border-radius: 26px;
+      box-shadow: var(--shadow);
+      padding: 26px 20px 22px;
+      margin: 14px 4px 26px;
+    }
+    /* The giant number. This is the reward - it goes up when he taps. */
+    .big-number {
+      font-family: 'Fraunces', serif;
+      font-weight: 600;
+      font-size: 96px;
+      line-height: 1;
+      color: var(--ink);
+    }
+    .big-number.met { color: var(--green); }        /* turns green once the goal is reached */
+    .count-sub { color: var(--ink-soft); font-size: 18px; margin-top: 8px; }
+    .goal-hit { color: var(--green); font-weight: 700; font-size: 19px; margin-top: 6px; }
+
+    /* THE button. Huge, obvious, thumb-friendly. */
+    .list-btn {
+      width: 100%;
+      min-height: 82px;                 /* far bigger than the 48px minimum for easy tapping */
+      border: none;
+      border-radius: 22px;
+      background: var(--green);
+      color: #fff;
+      font-family: 'Figtree', sans-serif;
+      font-weight: 700;
+      font-size: 26px;
+      letter-spacing: 0.3px;
+      box-shadow: 0 8px 0 var(--green-dk), 0 14px 24px rgba(31,168,90,0.30);
+      cursor: pointer;
+      transition: transform 0.06s ease, box-shadow 0.06s ease, background 0.2s ease;
+    }
+    /* When pressed, the button "sinks" like a real physical button. */
+    .list-btn:active { transform: translateY(6px); box-shadow: 0 2px 0 var(--green-dk), 0 6px 14px rgba(31,168,90,0.25); }
+    /* During the 3-second cooldown the button is calm grey and cannot be tapped. */
+    .list-btn:disabled { background: #9BB7A6; box-shadow: 0 6px 0 #7f9a8a; cursor: default; }
+
+    .streak { margin-top: 22px; font-weight: 700; font-size: 20px; color: var(--amber); min-height: 26px; }
+    .encourage { margin-top: 6px; color: var(--ink-soft); font-size: 18px; font-style: italic; min-height: 26px; }
+
+    /* ============ MANAGER VIEW ============ */
+    .mgr-top { display: flex; align-items: center; justify-content: space-between; padding: 6px 4px 0; }
+    .back-btn {
+      background: none; border: 1px solid var(--line); color: var(--ink);
+      border-radius: 999px; padding: 10px 16px; font-size: 15px; font-weight: 600;
+      font-family: 'Figtree', sans-serif; cursor: pointer;
+    }
+
+    .summary {
+      background: var(--card); border: 1px solid var(--line); border-radius: 20px;
+      box-shadow: var(--shadow); padding: 18px 20px; margin: 14px 4px;
+    }
+    .summary h2 { font-family: 'Fraunces', serif; font-size: 18px; margin: 0 0 10px; font-weight: 600; }
+    .stat-row { display: flex; gap: 10px; }
+    .stat { flex: 1; text-align: center; background: var(--bg); border-radius: 14px; padding: 12px 6px; }
+    .stat .n { font-family: 'Fraunces', serif; font-size: 26px; font-weight: 600; }
+    .stat .n.green { color: var(--green); }
+    .stat .lbl { color: var(--ink-soft); font-size: 13px; margin-top: 2px; }
+    .alltime { color: var(--ink-soft); font-size: 14px; margin-top: 12px; text-align: center; }
+
+    .controls { display: flex; gap: 10px; margin: 4px 4px 16px; flex-wrap: wrap; }
+    .goal-set { flex: 1; display: flex; align-items: center; gap: 8px; background: var(--card);
+                border: 1px solid var(--line); border-radius: 14px; padding: 8px 12px; }
+    .goal-set label { font-size: 14px; color: var(--ink-soft); font-weight: 600; }
+    .goal-set input { width: 56px; font-size: 18px; padding: 6px; border: 1px solid var(--line);
+                      border-radius: 8px; text-align: center; font-family: inherit; }
+
+    .btn-soft {
+      border: 1px solid var(--line); background: var(--card); color: var(--ink);
+      border-radius: 14px; padding: 10px 14px; font-size: 15px; font-weight: 600;
+      font-family: 'Figtree', sans-serif; cursor: pointer;
+    }
+    .btn-soft.wide { width: 100%; margin: 4px 4px 18px; padding: 14px; font-size: 17px; }
+
+    .entry {
+      background: var(--card); border: 1px solid var(--line); border-radius: 16px;
+      padding: 14px 16px; margin: 0 4px 12px;
+    }
+    .entry .head { display: flex; justify-content: space-between; align-items: baseline; margin-bottom: 8px; }
+    .entry .num { font-family: 'Fraunces', serif; font-weight: 600; font-size: 16px; }
+    .entry .when { color: var(--ink-soft); font-size: 14px; }
+    .entry input.name {
+      width: 100%; font-size: 17px; padding: 10px; border: 1px solid var(--line);
+      border-radius: 10px; font-family: inherit; margin-bottom: 10px;
+    }
+    .entry .row2 { display: flex; align-items: center; gap: 10px; flex-wrap: wrap; }
+    .sold-toggle { display: flex; align-items: center; gap: 6px; font-size: 15px; font-weight: 600; }
+    .sold-toggle input { width: 22px; height: 22px; }
+    .entry input.price {
+      width: 90px; font-size: 16px; padding: 8px 10px; border: 1px solid var(--line);
+      border-radius: 10px; font-family: inherit;
+    }
+    .entry .save { margin-left: auto; }
+    .entry.is-sold { border-color: #BFE6CF; background: #F4FBF6; }
+    .saved-flash { color: var(--green); font-size: 14px; font-weight: 600; opacity: 0; transition: opacity 0.2s; }
+    .saved-flash.show { opacity: 1; }
+    .empty { text-align: center; color: var(--ink-soft); padding: 30px 10px; }
+  </style>
+</head>
+<body>
+  <div class="wrap">
+    <div class="brand"><span class="dot"></span> DadList</div>
+
+    <!-- This red box stays hidden unless the app can't reach Firebase (usually a config typo). -->
+    <div id="errorBar" class="hidden"></div>
+
+    <!-- ==================== DAD VIEW (the default screen) ==================== -->
+    <div id="dadView">
+      <div class="goal-label">Today's goal: <span id="goalText">3</span></div>
+
+      <div class="count-card">
+        <div id="bigNumber" class="big-number">0</div>
+        <div id="countSub" class="count-sub">of 3 listed today</div>
+        <div id="goalHit" class="goal-hit hidden">Goal hit! Anything more is a bonus.</div>
+      </div>
+
+      <button id="listBtn" class="list-btn">I LISTED IT!</button>
+
+      <div id="streak" class="streak"></div>
+      <div id="encourage" class="encourage"></div>
+    </div>
+
+    <!-- ==================== MANAGER VIEW (only shows at #manage) ==================== -->
+    <div id="managerView" class="hidden">
+      <div class="mgr-top">
+        <div class="brand" style="padding:6px 0;"><span class="dot"></span> Manager</div>
+        <button id="backBtn" class="back-btn">&larr; Dad view</button>
+      </div>
+
+      <div class="summary">
+        <h2>This week (last 7 days)</h2>
+        <div class="stat-row">
+          <div class="stat"><div id="wkListed" class="n">0</div><div class="lbl">listed</div></div>
+          <div class="stat"><div id="wkSold" class="n green">0</div><div class="lbl">sold</div></div>
+          <div class="stat"><div id="wkEarned" class="n green">$0</div><div class="lbl">earned</div></div>
+        </div>
+        <div id="allTime" class="alltime"></div>
+      </div>
+
+      <div class="controls">
+        <div class="goal-set">
+          <label for="goalInput">Daily goal</label>
+          <input id="goalInput" type="number" min="1" max="99" value="3" inputmode="numeric" />
+          <button id="saveGoal" class="btn-soft">Save</button>
+        </div>
+      </div>
+
+      <button id="addManual" class="btn-soft wide">+ Add entry manually</button>
+
+      <div id="entryList"></div>
+    </div>
+  </div>
+
+  <!-- ===================================================================
+       ALL THE LOGIC IS BELOW. type="module" lets us import Firebase from the web.
+       (Because it is a module, this ONLY runs when opened from a real web
+        address - not by double-tapping the file. That is normal. Deploy it first.)
+       =================================================================== -->
+  <script type="module">
+    // Import ONLY the Firebase pieces we use. Smaller + faster than loading all of Firebase.
+    import { initializeApp } from "https://www.gstatic.com/firebasejs/12.16.0/firebase-app.js";
+    import {
+      getFirestore, collection, doc, addDoc, updateDoc, setDoc, onSnapshot
+    } from "https://www.gstatic.com/firebasejs/12.16.0/firebase-firestore.js";
+
+    // ===================================================================
+    // 🔴  STEP 4 - PASTE YOUR FIREBASE CONFIG BETWEEN THE LINES BELOW  🔴
+    // In Firebase: Project settings  ->  scroll to "Your apps"  ->  the Web app
+    // ->  copy the values. Replace every  PASTE_..._HERE  below. Keep the quotes.
+    // ===================================================================
+    const firebaseConfig = {
+      apiKey:            "AIzaSyDR5dZu6PTH5XnTgS8-H5g_GDE6CNegTjk",
+      authDomain:        "dadslist-14a51.firebaseapp.com",
+      projectId:         "dadslist-14a51",
+      storageBucket:     "dadslist-14a51.firebasestorage.app",
+      messagingSenderId: "289346228132",
+      appId:             "1:289346228132:web:bd2915c954bdecd603fb31"
+    };
+    // ===================================================================
+    // 🔴  END OF THE PART YOU EDIT. Everything below just works.  🔴
+    // ===================================================================
+
+    // Grab all the screen elements once, so we can update them later.
+    const el = (id) => document.getElementById(id);
+    const errorBar = el("errorBar");
+
+    // -- A friendly guard: if the config was never filled in, say so plainly. --
+    if (firebaseConfig.apiKey.startsWith("PASTE_")) {
+      showError("You haven't added your Firebase settings yet. Open <b>index.html</b>, " +
+                "find the red <b>STEP 4</b> banner, and paste your config there.");
+      throw new Error("Firebase config not set");   // stop here on purpose
+    }
+
+    // -- Connect to Firebase. If the config is wrong, this is where it fails, so we catch it. --
+    let db;
+    try {
+      const app = initializeApp(firebaseConfig);
+      db = getFirestore(app);
+    } catch (err) {
+      showError("Couldn't connect to Firebase. Double-check every value in your config. (" + err.message + ")");
+      throw err;
+    }
+
+    // Two places our data lives:
+    const listingsCol = collection(db, "listings");        // every "I listed it" tap becomes a document here
+    const settingsRef = doc(db, "settings", "config");     // one document that holds the daily goal
+
+    // -- Local copies of the data, kept fresh by the live listeners below. --
+    let listings = [];      // all listing records
+    let dailyGoal = 3;      // default until the real setting loads
+    let pendingListRender = false;   // used so we never wipe out text you're typing
+
+    // -------- Small date helpers. Everything uses the PHONE'S local time. --------
+    // Turns a date into a plain "2026-07-20" key, used to group taps by day.
+    function dayKeyOf(d) {
+      const y = d.getFullYear();
+      const m = String(d.getMonth() + 1).padStart(2, "0");
+      const day = String(d.getDate()).padStart(2, "0");
+      return `${y}-${m}-${day}`;
+    }
+    const todayKey = () => dayKeyOf(new Date());
+
+    // Turns a saved timestamp into friendly text like "Today 2:30 PM" or "Jul 18, 6:02 PM".
+    function friendlyTime(ms) {
+      const d = new Date(ms);
+      const t = d.toLocaleTimeString([], { hour: "numeric", minute: "2-digit" });
+      const dk = dayKeyOf(d);
+      const yst = dayKeyOf(new Date(Date.now() - 86400000));   // 86400000 ms = one day
+      if (dk === todayKey()) return "Today " + t;
+      if (dk === yst)        return "Yesterday " + t;
+      return d.toLocaleDateString([], { month: "short", day: "numeric" }) + ", " + t;
+    }
+
+    // Formats money as $34 or $34.50 (drops the cents when they are .00).
+    function money(n) {
+      if (n === null || n === undefined || isNaN(n)) return "$0";
+      return "$" + (Number(n) % 1 === 0 ? Number(n).toFixed(0) : Number(n).toFixed(2));
+    }
+
+    // =================== LIVE LISTENERS (the magic that syncs both phones) ===================
+    // Firebase calls these functions instantly whenever the data changes - on ANY device.
+    onSnapshot(settingsRef, (snap) => {
+      if (snap.exists() && typeof snap.data().dailyGoal === "number") {
+        dailyGoal = snap.data().dailyGoal;
+      }
+      el("goalInput").value = dailyGoal;   // keep the manager input in sync
+      renderDad();                         // the goal affects Dad's screen + the streak
+    }, (err) => showError("Read blocked. Check your Firestore Rules step. (" + err.message + ")"));
+
+    onSnapshot(listingsCol, (snap) => {
+      listings = snap.docs.map((d) => ({ id: d.id, ...d.data() }));
+      // Newest first. We sort here instead of in the query so Firebase needs no extra setup.
+      listings.sort((a, b) => (b.createdAt || 0) - (a.createdAt || 0));
+      renderDad();
+      maybeRenderList();
+    }, (err) => showError("Read blocked. Check your Firestore Rules step. (" + err.message + ")"));
+
+    // =================== DAD VIEW ===================
+    // Encouragement lines. Warm, never guilt-tripping. Edit these to your heart's content.
+    const ENCOURAGEMENTS = [
+      "Nice work.",
+      "That's the spirit.",
+      "Every one counts.",
+      "Look at you go.",
+      "eBay won't know what hit it.",
+      "Proud of you, Dad."
+    ];
+
+    function countToday() {
+      return listings.filter((l) => l.dayKey === todayKey()).length;
+    }
+
+    // Counts consecutive days (ending today, or yesterday if today isn't done yet) where the goal was met.
+    function computeStreak() {
+      const goal = Math.max(1, dailyGoal);
+      // Count taps per day.
+      const perDay = {};
+      for (const l of listings) perDay[l.dayKey] = (perDay[l.dayKey] || 0) + 1;
+      const met = (key) => (perDay[key] || 0) >= goal;
+
+      let streak = 0;
+      let cursor = new Date();                       // start at today
+      if (!met(dayKeyOf(cursor))) {                  // today not done yet? the streak still stands from yesterday back
+        cursor.setDate(cursor.getDate() - 1);
+      }
+      while (met(dayKeyOf(cursor))) {                // walk backwards day by day while each day hit the goal
+        streak++;
+        cursor.setDate(cursor.getDate() - 1);
+      }
+      return streak;
+    }
+
+    function renderDad() {
+      const goal = Math.max(1, dailyGoal);
+      const n = countToday();
+      const metGoal = n >= goal;
+
+      el("goalText").textContent = goal;
+      el("bigNumber").textContent = n;
+      el("bigNumber").classList.toggle("met", metGoal);
+      el("countSub").textContent = `of ${goal} listed today`;
+      el("goalHit").classList.toggle("hidden", !metGoal);
+
+      const s = computeStreak();
+      el("streak").textContent = s >= 1 ? `🔥 ${s}-day streak!` : "";
+    }
+
+    // -------- The one button --------
+    let coolingDown = false;
+    const listBtn = el("listBtn");
+
+    listBtn.addEventListener("click", async () => {
+      if (coolingDown) return;               // ignore accidental double taps
+      startCooldown();
+      celebrate();
+      // Show a fresh encouragement line on each tap.
+      el("encourage").textContent = ENCOURAGEMENTS[Math.floor(Math.random() * ENCOURAGEMENTS.length)];
+      try {
+        // Create one new listing record. Item name/price are added later in Manager view.
+        await addDoc(listingsCol, {
+          createdAt: Date.now(),
+          dayKey:    todayKey(),
+          itemName:  "",
+          isSold:    false,
+          sellPrice: null,
+          soldAt:    null
+        });
+      } catch (err) {
+        showError("Couldn't save that tap. Check your Firestore Rules step. (" + err.message + ")");
+      }
+    });
+
+    // Disables the button for 3 seconds so a shaky double-tap doesn't record two listings.
+    function startCooldown() {
+      coolingDown = true;
+      listBtn.disabled = true;
+      const original = "I LISTED IT!";
+      listBtn.textContent = "Got it! ✓";
+      setTimeout(() => {
+        coolingDown = false;
+        listBtn.disabled = false;
+        listBtn.textContent = original;
+      }, 3000);
+    }
+
+    // Fires the confetti burst - but only if the confetti library actually loaded.
+    function celebrate() {
+      if (typeof confetti === "function") {
+        confetti({ particleCount: 70, spread: 65, origin: { y: 0.7 }, scalar: 0.9 });
+      }
+    }
+
+    // =================== MANAGER VIEW ===================
+    const entryListEl = el("entryList");
+
+    // Only rebuild the list when you are NOT in the middle of typing in it.
+    function maybeRenderList() {
+      const active = document.activeElement;
+      const editingInList = active && active.closest && active.closest("#entryList");
+      if (editingInList) { pendingListRender = true; return; }   // wait until you're done
+      renderList();
+    }
+    // When you finish typing and tap away, apply any update we held back.
+    entryListEl.addEventListener("focusout", () => {
+      setTimeout(() => {
+        const active = document.activeElement;
+        const stillEditing = active && active.closest && active.closest("#entryList");
+        if (!stillEditing && pendingListRender) { pendingListRender = false; renderList(); }
+      }, 120);
+    });
+
+    function renderSummary() {
+      const weekAgo = Date.now() - 7 * 86400000;
+      const listedWk = listings.filter((l) => (l.createdAt || 0) >= weekAgo).length;
+      const soldWkItems = listings.filter((l) => l.isSold && (l.soldAt || 0) >= weekAgo);
+      const earnedWk = soldWkItems.reduce((sum, l) => sum + (Number(l.sellPrice) || 0), 0);
+
+      el("wkListed").textContent = listedWk;
+      el("wkSold").textContent = soldWkItems.length;
+      el("wkEarned").textContent = money(earnedWk);
+
+      const soldAll = listings.filter((l) => l.isSold);
+      const earnedAll = soldAll.reduce((sum, l) => sum + (Number(l.sellPrice) || 0), 0);
+      el("allTime").textContent =
+        `All time: ${listings.length} listed · ${soldAll.length} sold · ${money(earnedAll)} earned`;
+    }
+
+    function renderList() {
+      renderSummary();
+      entryListEl.innerHTML = "";
+
+      if (listings.length === 0) {
+        entryListEl.innerHTML = '<div class="empty">No listings yet. When Dad taps his button, entries appear here.</div>';
+        return;
+      }
+
+      listings.forEach((item, idx) => {
+        const number = listings.length - idx;   // #1 is the oldest, newest gets the biggest number
+        const card = document.createElement("div");
+        card.className = "entry" + (item.isSold ? " is-sold" : "");
+
+        // -- Header: entry number + when it was listed --
+        const head = document.createElement("div");
+        head.className = "head";
+        head.innerHTML = `<span class="num">#${number}</span><span class="when">${friendlyTime(item.createdAt)}</span>`;
+        card.appendChild(head);
+
+        // -- Item name box --
+        const name = document.createElement("input");
+        name.className = "name";
+        name.type = "text";
+        name.placeholder = "Tap to add item name…";
+        name.value = item.itemName || "";
+        card.appendChild(name);
+
+        // -- Second row: Sold checkbox, price box, Save button, "Saved!" flash --
+        const row2 = document.createElement("div");
+        row2.className = "row2";
+
+        const soldWrap = document.createElement("label");
+        soldWrap.className = "sold-toggle";
+        const sold = document.createElement("input");
+        sold.type = "checkbox";
+        sold.checked = !!item.isSold;
+        soldWrap.appendChild(sold);
+        soldWrap.appendChild(document.createTextNode("Sold"));
+        row2.appendChild(soldWrap);
+
+        const price = document.createElement("input");
+        price.className = "price";
+        price.type = "number";
+        price.min = "0";
+        price.step = "0.01";
+        price.inputMode = "decimal";
+        price.placeholder = "$ price";
+        price.value = (item.sellPrice === null || item.sellPrice === undefined) ? "" : item.sellPrice;
+        row2.appendChild(price);
+
+        const flash = document.createElement("span");
+        flash.className = "saved-flash";
+        flash.textContent = "Saved!";
+
+        const saveBtn = document.createElement("button");
+        saveBtn.className = "btn-soft save";
+        saveBtn.textContent = "Save";
+        row2.appendChild(saveBtn);
+        row2.appendChild(flash);
+        card.appendChild(row2);
+
+        // -- What "Save" does: write name, sold status, and price back to Firebase. --
+        async function saveEntry() {
+          // Empty price box means "no price yet" (null); otherwise use the typed number.
+          const priceVal = price.value.trim() === "" ? null : Number(price.value);
+          const patch = {
+            itemName: name.value.trim(),
+            isSold: sold.checked,
+            sellPrice: priceVal
+          };
+          // Record WHEN it sold, so "earned this week" is accurate. Clear it if un-sold.
+          if (sold.checked && !item.soldAt) patch.soldAt = Date.now();
+          if (!sold.checked) patch.soldAt = null;
+
+          try {
+            await updateDoc(doc(db, "listings", item.id), patch);
+            flash.classList.add("show");
+            setTimeout(() => flash.classList.remove("show"), 1200);
+          } catch (err) {
+            showError("Couldn't save that edit. (" + err.message + ")");
+          }
+        }
+        saveBtn.addEventListener("click", saveEntry);
+        // Toggling "Sold" saves right away, so the green highlight updates immediately.
+        sold.addEventListener("change", saveEntry);
+
+        entryListEl.appendChild(card);
+      });
+    }
+
+    // -- "Add entry manually" (for when Dad forgot to tap but told you about it) --
+    el("addManual").addEventListener("click", async () => {
+      try {
+        await addDoc(listingsCol, {
+          createdAt: Date.now(), dayKey: todayKey(),
+          itemName: "", isSold: false, sellPrice: null, soldAt: null
+        });
+      } catch (err) {
+        showError("Couldn't add entry. (" + err.message + ")");
+      }
+    });
+
+    // -- Save the daily goal (writes to the shared settings doc, so Dad's phone updates too) --
+    el("saveGoal").addEventListener("click", async () => {
+      const g = Math.max(1, Math.min(99, parseInt(el("goalInput").value, 10) || 1));
+      try {
+        await setDoc(settingsRef, { dailyGoal: g }, { merge: true });   // merge = don't erase other settings
+      } catch (err) {
+        showError("Couldn't save the goal. (" + err.message + ")");
+      }
+    });
+
+    // =================== VIEW SWITCHING (Dad vs Manager) ===================
+    // The URL's "#manage" part decides which screen shows. No login needed.
+    function applyView() {
+      const manager = location.hash === "#manage";
+      el("managerView").classList.toggle("hidden", !manager);
+      el("dadView").classList.toggle("hidden", manager);
+      if (manager) renderList();
+    }
+    window.addEventListener("hashchange", applyView);
+    el("backBtn").addEventListener("click", () => { location.hash = ""; });
+    applyView();   // set the correct view on first load
+
+    // =================== TINY HELPER ===================
+    function showError(html) {
+      errorBar.innerHTML = html;
+      errorBar.classList.remove("hidden");
+    }
+  </script>
+</body>
+</html>
